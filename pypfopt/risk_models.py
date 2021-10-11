@@ -24,6 +24,10 @@ The format of the data input is the same as that in :ref:`expected-returns`.
 import warnings
 import numpy as np
 import pandas as pd
+import pyspark
+from pyspark.ml.stat import Correlation
+from pyspark.ml.feature import VectorAssembler
+
 from .expected_returns import returns_from_prices
 
 
@@ -144,7 +148,7 @@ def risk_matrix(prices, method="sample_cov", **kwargs):
         raise NotImplementedError("Risk model {} not implemented".format(method))
 
 
-def sample_cov(prices, returns_data=False, frequency=252, log_returns=False, **kwargs):
+def sample_cov(prices, returns_data=False, frequency=252, log_returns=False, is_spark=False, spark_ses=None, **kwargs):
     """
     Calculate the annualised sample covariance matrix of (daily) asset returns.
 
@@ -158,19 +162,40 @@ def sample_cov(prices, returns_data=False, frequency=252, log_returns=False, **k
     :type frequency: int, optional
     :param log_returns: whether to compute using log returns
     :type log_returns: bool, defaults to False
+    :is_spark: whether prices is a spark dataframe
+    :type is_spark: bool, optional
+    :spark_ses: a configured spark session # TODO: might be omitted unless actually used
+    :type is_spark: pyspark.sql.session.SparkSession, optional
     :return: annualised sample covariance matrix
     :rtype: pd.DataFrame
     """
+    if is_spark is True and type(prices) != pyspark.sql.dataframe.DataFrame:
+        raise RuntimeError("Loading a non-spark dataframe to a spark session is not supported!")
+        sys.exit(1)
     if not isinstance(prices, pd.DataFrame):
         warnings.warn("data is not in a dataframe", RuntimeWarning)
         prices = pd.DataFrame(prices)
     if returns_data:
         returns = prices
     else:
-        returns = returns_from_prices(prices, log_returns)
-    return fix_nonpositive_semidefinite(
-        returns.cov() * frequency, kwargs.get("fix_method", "spectral")
-    )
+        returns = returns_from_prices(prices, log_returns, is_spark)
+    if not is_spark:
+        return_matrix = fix_nonpositive_semidefinite(
+            returns.cov() * frequency, kwargs.get("fix_method", "spectral")
+        )
+    if is_spark:
+        returns = returns.drop("date_index")
+        vector_col = "corr_features"
+        assembler = VectorAssembler(inputCols=returns.columns, outputCol=vector_col, handleInvalid="skip")
+        df_vector = assembler.transform(returns).select(vector_col)
+        matrix = Correlation.corr(df_vector, vector_col)
+        returns_cov = matrix.collect()[0]["pearson({})".format(vector_col)].values
+        # TODO: Verify returns_cov meets specs of fix_nonpositive_semidefinite
+        return_matrix = fix_nonpositive_semidefinite(
+            returns_cov * frequency, kwargs.get("fix_method", "spectral")
+        )
+
+    return return_matrix
 
 
 def semicovariance(
