@@ -183,6 +183,7 @@ def sample_cov(prices, returns_data=False, frequency=252, log_returns=False, is_
         return_matrix = fix_nonpositive_semidefinite(
             returns.cov() * frequency, kwargs.get("fix_method", "spectral")
         )
+    # FIXME: returns calc is the same results but returns_cov() differ?!?
     if is_spark:
         returns = returns.drop("date_index")
         vector_col = "corr_features"

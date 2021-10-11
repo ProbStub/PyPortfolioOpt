@@ -55,21 +55,21 @@ def returns_from_prices(prices, log_returns=False, is_spark=False):
         price_cols = prices.columns
         price_cols.remove("date_index")
         for col in price_cols:
-            log_returns_df = prices.\
+            prices = prices.\
                 withColumn("tmp_lag_1", F.lag(prices[col]) \
                                              .over(Window.orderBy("date_index"))) \
                 .withColumn(col, (F.col(col) - F.col("tmp_lag_1")) / F.col("tmp_lag_1")).drop(F.col("tmp_lag_1"))\
                 .withColumn(col, F.log(1+F.col(col)))
-        return log_returns_df
+        return prices
     if not log_returns and is_spark:
         price_cols = prices.columns
         price_cols.remove("date_index")
         for col in price_cols:
-            returns_df = prices\
+            prices = prices\
                 .withColumn("tmp_lag_1", F.lag(prices[col]) \
                                              .over(Window.orderBy("date_index"))) \
                 .withColumn(col, (F.col(col) - F.col("tmp_lag_1")) / F.col("tmp_lag_1")).drop(F.col("tmp_lag_1"))
-        return returns_df
+        return prices
 
 
 def prices_from_returns(returns, log_returns=False):
