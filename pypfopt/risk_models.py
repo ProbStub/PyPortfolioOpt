@@ -172,7 +172,7 @@ def sample_cov(prices, returns_data=False, frequency=252, log_returns=False, is_
     if is_spark is True and type(prices) != pyspark.sql.dataframe.DataFrame:
         raise RuntimeError("Loading a non-spark dataframe to a spark session is not supported!")
         sys.exit(1)
-    if not isinstance(prices, pd.DataFrame):
+    if not isinstance(prices, pd.DataFrame) and not is_spark:
         warnings.warn("data is not in a dataframe", RuntimeWarning)
         prices = pd.DataFrame(prices)
     if returns_data:
@@ -189,8 +189,8 @@ def sample_cov(prices, returns_data=False, frequency=252, log_returns=False, is_
         assembler = VectorAssembler(inputCols=returns.columns, outputCol=vector_col, handleInvalid="skip")
         df_vector = assembler.transform(returns).select(vector_col)
         matrix = Correlation.corr(df_vector, vector_col)
-        returns_cov = matrix.collect()[0]["pearson({})".format(vector_col)].values
-        # TODO: Verify returns_cov meets specs of fix_nonpositive_semidefinite
+        returns_cov = matrix.collect()[0]["pearson({})".format(vector_col)].toArray()
+        returns_cov = pd.DataFrame(returns_cov, columns=returns.columns, index=returns.columns)
         return_matrix = fix_nonpositive_semidefinite(
             returns_cov * frequency, kwargs.get("fix_method", "spectral")
         )
