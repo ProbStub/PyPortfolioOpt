@@ -155,7 +155,7 @@ def sample_cov(prices, returns_data=False, frequency=252, log_returns=False, is_
 
     :param prices: adjusted closing prices of the asset, each row is a date
                    and each column is a ticker/id.
-    :type prices: pd.DataFrame or spark.DataFrame with a "date_index" col of type Timestamp
+    :type prices: pd.DataFrame or spark.DataFrame with a "date_index" col of type Timestamp and less than 65535 col
     :param returns_data: if true, the first argument is returns instead of prices.
     :type returns_data: bool, defaults to False.
     :param frequency: number of time periods in a year, defaults to 252 (the number
@@ -170,6 +170,9 @@ def sample_cov(prices, returns_data=False, frequency=252, log_returns=False, is_
     :return: annualised sample covariance matrix
     :rtype: pd.DataFrame
     """
+    if is_spark is True and len(prices.columns) > 65535:
+        raise RuntimeError("Operation with more than 65535 columns are not supported. Aborting!")
+        sys.exit(1)
     if is_spark is True and spark_ses is None:
         raise RuntimeError("Loading a non-spark dataframe without a spark session is not supported!")
         sys.exit(1)

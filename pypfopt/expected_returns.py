@@ -67,6 +67,7 @@ def returns_from_prices(prices, log_returns=False, is_spark=False):
                                              .over(Window.orderBy("date_index"))) \
                 .withColumn(col, (F.col(col) - F.col("tmp_lag_1")) / F.col("tmp_lag_1")).drop(F.col("tmp_lag_1"))\
                 .withColumn(col, F.log(1+F.col(col)))
+        prices = prices.dropna(how="all", subset=price_cols)
         return prices
     if not log_returns and is_spark:
         price_cols = prices.columns
@@ -76,6 +77,7 @@ def returns_from_prices(prices, log_returns=False, is_spark=False):
                 .withColumn("tmp_lag_1", F.lag(prices[col]) \
                                              .over(Window.orderBy("date_index"))) \
                 .withColumn(col, (F.col(col) - F.col("tmp_lag_1")) / F.col("tmp_lag_1")).drop(F.col("tmp_lag_1"))
+        prices = prices.dropna(how="all", subset=price_cols)
         return prices
 
 
