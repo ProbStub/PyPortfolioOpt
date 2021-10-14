@@ -1,8 +1,9 @@
 import pandas as pd
 import numpy as np
 import pytest
+from pyspark.sql import functions as F
 from pypfopt import risk_models, expected_returns
-from tests.utilities_for_tests import get_data
+from tests.utilities_for_tests import get_data, setup_spark
 
 
 def test_sample_cov_dummy():
@@ -364,3 +365,32 @@ def test_risk_matrix_not_implemented():
     df = get_data()
     with pytest.raises(NotImplementedError):
         risk_models.risk_matrix(df, method="fancy_new!")
+
+def test_spark_sample_cov_equivalence():
+    spark = setup_spark()
+    df = get_data()
+    df["date_index"] = df.index
+    spark_df = spark.createDataFrame(df)
+    spark_df = spark_df.withColumn("date_index", F.col("date_index").cast("Timestamp"))
+    df = df.drop(columns=["date_index"])
+    sample_cov_orig = risk_models.sample_cov(df, frequency=252)
+    sample_cov_spark_df = risk_models.sample_cov(spark_df, frequency=252, is_spark=True, spark_ses=spark)
+    sample_cov_spark_pd = risk_models.sample_cov(df, frequency=252, is_spark=True, spark_ses=spark)
+    element_delta_df = sample_cov_orig.subtract(sample_cov_spark_df)
+    element_delta_pd = sample_cov_orig.subtract(sample_cov_spark_pd)
+    assert element_delta_df.max().max() <= 0.0000000001 and element_delta_pd.max().max() <= 0.0000000001
+
+def test_spark_sample_cov_spark_warning():
+    assert False
+
+def test_spark_sample_cov_cum_col_error():
+    assert False
+
+def test_spark_sample_cov_spark_error():
+    assert False
+
+def test_spark_sample_cov_date_index_error():
+    assert False
+
+def test_spark_sample_cov_date_type_error():
+    assert False
