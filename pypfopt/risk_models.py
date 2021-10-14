@@ -176,6 +176,10 @@ def sample_cov(prices, returns_data=False, frequency=252, log_returns=False, is_
     if is_spark is True and type(prices) == pyspark.sql.dataframe.DataFrame and "date_index" not in prices.columns:
         raise RuntimeError("Loading a spark dataframe without a 'date_index' column is not supported!")
         sys.exit(1)
+    if is_spark is True and type(prices) == pyspark.sql.dataframe.DataFrame and "date_index" in prices.columns and\
+        "timestamp" not in [dat_type for col, dat_type in prices.dtypes if col == "date_index"]:
+        raise RuntimeError("Dataframe with 'date_index' column of wrong type. Must be type Timestamp")
+        sys.exit(1)
     if is_spark is True and type(prices) != pyspark.sql.dataframe.DataFrame:
         warnings.warn("data is not in a spark dataframe", RuntimeWarning)
         prices["date_index"] = prices.index

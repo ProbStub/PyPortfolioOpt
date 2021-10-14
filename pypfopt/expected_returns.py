@@ -48,6 +48,10 @@ def returns_from_prices(prices, log_returns=False, is_spark=False):
     if is_spark is True and type(prices) == pyspark.sql.dataframe.DataFrame and "date_index" not in prices.columns:
         raise RuntimeError("Loading a spark dataframe without a 'date_index' column is not supported!")
         sys.exit(1)
+    if is_spark is True and type(prices) == pyspark.sql.dataframe.DataFrame and "date_index" in prices.columns and\
+        "timestamp" not in [dat_type for col, dat_type in prices.dtypes if col == "date_index"]:
+        raise RuntimeError("Dataframe with 'date_index' column of wrong type. Must be type Timestamp")
+        sys.exit(1)
 
     if log_returns and not is_spark:
         return np.log(1 + prices.pct_change()).dropna(how="all")
