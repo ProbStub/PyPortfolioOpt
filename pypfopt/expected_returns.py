@@ -34,7 +34,7 @@ def returns_from_prices(prices, log_returns=False, is_spark=False):
 
     :param prices: adjusted (daily) closing prices of the asset, each row is a
                    date and each column is a ticker/id.
-    :type prices: pd.DataFrame
+    :type prices: pd.DataFrame or spark.DataFrame with a "date_index" col of type Timestamp
     :param log_returns: whether to compute using log returns
     :type log_returns: bool, defaults to False
     :is_spark: whether prices is a spark dataframe
@@ -44,6 +44,9 @@ def returns_from_prices(prices, log_returns=False, is_spark=False):
     """
     if is_spark is True and type(prices) != pyspark.sql.dataframe.DataFrame:
         raise RuntimeError("Loading a non-spark dataframe to a spark session is not supported!")
+        sys.exit(1)
+    if is_spark is True and type(prices) == pyspark.sql.dataframe.DataFrame and "date_index" not in prices.columns:
+        raise RuntimeError("Loading a spark dataframe without a 'date_index' column is not supported!")
         sys.exit(1)
 
     if log_returns and not is_spark:
