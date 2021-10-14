@@ -59,6 +59,7 @@ def returns_from_prices(prices, log_returns=False, is_spark=False):
         return prices.pct_change().dropna(how="all")
 
     if log_returns and is_spark:
+        # TODO: Add partition to Window()
         price_cols = prices.columns
         price_cols.remove("date_index")
         for col in price_cols:
