@@ -170,11 +170,11 @@ def sample_cov(prices, returns_data=False, frequency=252, log_returns=False, is_
     :return: annualised sample covariance matrix
     :rtype: pd.DataFrame
     """
+    if is_spark is True and type(spark_ses) != pyspark.sql.session.SparkSession:
+        raise RuntimeError("No valid spark session reference has been provided")
+        sys.exit(1)
     if is_spark is True and len(prices.columns) > 65535:
         raise RuntimeError("Operation with more than 65535 columns are not supported. Aborting!")
-        sys.exit(1)
-    if is_spark is True and spark_ses is None:
-        raise RuntimeError("Loading a non-spark dataframe without a spark session is not supported!")
         sys.exit(1)
     if is_spark is True and type(prices) == pyspark.sql.dataframe.DataFrame and "date_index" not in prices.columns:
         raise RuntimeError("Loading a spark dataframe without a 'date_index' column is not supported!")
@@ -183,7 +183,8 @@ def sample_cov(prices, returns_data=False, frequency=252, log_returns=False, is_
         "timestamp" not in [dat_type for col, dat_type in prices.dtypes if col == "date_index"]:
         raise RuntimeError("Dataframe with 'date_index' column of wrong type. Must be type Timestamp")
         sys.exit(1)
-    if is_spark is True and type(prices) != pyspark.sql.dataframe.DataFrame:
+    if is_spark is True and type(prices) != pyspark.sql.dataframe.DataFrame and\
+            type(spark_ses) == pyspark.sql.session.SparkSession:
         warnings.warn("data is not in a spark dataframe", RuntimeWarning)
         prices["date_index"] = prices.index
         prices = spark_ses.createDataFrame(prices)

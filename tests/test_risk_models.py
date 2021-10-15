@@ -406,16 +406,46 @@ def test_spark_sample_cov_equivalence():
     assert element_delta_df.max().max() <= 0.5 and element_delta_pd.max().max() <= 0.5
 
 def test_spark_sample_cov_spark_warning():
-    assert False
+    spark = setup_spark()
+    df = get_data()
+    df["date_index"] = df.index
+    spark_df = spark.createDataFrame(df)
+    spark_df = spark_df.withColumn("date_index", F.col("date_index").cast("Timestamp"))
+    df = df.drop(columns=["date_index"])
+    with pytest.warns(RuntimeWarning) as w:
+        cov_spark = risk_models.sample_cov(df, is_spark=True, spark_ses=spark)
+        assert str(w[0].message) == "data is not in a spark dataframe"
+        assert type(cov_spark) != None
 
 def test_spark_sample_cov_cum_col_error():
-    assert False
+    spark = setup_spark()
+    data_list = np.random.random(65536).tolist()
+    test_df = spark.createDataFrame([data_list])
+    with pytest.raises(RuntimeError) as r:
+        cov_spark = risk_models.sample_cov(test_df, is_spark=True, spark_ses=spark)
+        assert str(r[0].message) == "Operation with more than 65535 columns are not supported. Aborting!"
 
 def test_spark_sample_cov_spark_error():
-    assert False
+    with pytest.raises(RuntimeError) as r:
+        cov_spark = risk_models.sample_cov(pd.DataFrame(), is_spark=True)
+        assert str(r[0].message) == "No valid spark session reference has been provided"
 
 def test_spark_sample_cov_date_index_error():
-    assert False
+    spark = setup_spark()
+    df = get_data()
+    df["date"] = df.index
+    spark_df = spark.createDataFrame(df)
+    spark_df = spark_df.withColumn("date", F.col("date").cast("Timestamp"))
+    with pytest.raises(RuntimeError) as r:
+        cov_spark = risk_models.sample_cov(spark_df, is_spark=True)
+        assert str(r[0].message) == "Loading a spark dataframe without a 'date_index' column is not supported!"
 
 def test_spark_sample_cov_date_type_error():
-    assert False
+    spark = setup_spark()
+    df = get_data()
+    df["date_index"] = df.index
+    spark_df = spark.createDataFrame(df)
+    spark_df = spark_df.withColumn("date_index", F.col("date_index").cast("string"))
+    with pytest.raises(RuntimeError) as r:
+        cov_spark = risk_models.sample_cov(spark_df, is_spark=True)
+        assert str(r[0].message) == "Dataframe with 'date_index' column of wrong type. Must be type Timestamp"

@@ -297,10 +297,26 @@ def test_spark_returns_from_price_equivalence():
     assert element_delta_df.max().max() <= 0.0000000001
 
 def test_spark_returns_from_price_spark_error():
-    assert False
+    with pytest.raises(RuntimeError) as r:
+        returns_spark = expected_returns.returns_from_prices(pd.DataFrame(), is_spark=True)
+        assert str(r[0].message) == "Loading a non-spark dataframe to a spark session is not supported!"
 
 def test_spark_returns_from_price_date_index_error():
-    assert False
+    spark = setup_spark()
+    df = get_data()
+    df["date"] = df.index
+    spark_df = spark.createDataFrame(df)
+    spark_df = spark_df.withColumn("date", F.col("date").cast("Timestamp"))
+    with pytest.raises(RuntimeError) as r:
+        returns_spark = expected_returns.returns_from_prices(spark_df, is_spark=True)
+        assert str(r[0].message) == "Loading a spark dataframe without a 'date_index' column is not supported!"
 
 def test_spark_returns_from_price_date_type_error():
-    assert False
+    spark = setup_spark()
+    df = get_data()
+    df["date_index"] = df.index
+    spark_df = spark.createDataFrame(df)
+    spark_df = spark_df.withColumn("date_index", F.col("date_index").cast("string"))
+    with pytest.raises(RuntimeError) as r:
+        returns_spark = expected_returns.returns_from_prices(spark_df, is_spark=True)
+        assert str(r[0].message) == "Dataframe with 'date_index' column of wrong type. Must be type Timestamp"
