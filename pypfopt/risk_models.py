@@ -203,8 +203,10 @@ def sample_cov(prices, returns_data=False, frequency=252, log_returns=False, is_
         returns = returns.drop("date_index")
         vector_col = "cov_features"
         # FIXME: Pandas.cov() and SparkML.computeCovariance are treating None/null differently.
-        #        fillna(0) and handleInvalid="keep" do not make Spark behave. cov(min_periods=len(returns.index)) might
-        #        work to adapt Pandas but that does not keep the with the pyPortfolioOpt tests... Write custom cov()?!?
+        #        Compare: https://stackoverflow.com/questions/69583287
+        #        fillna(0) and handleInvalid="keep" do not make Spark behave. cov(min_periods=len(returns.index)/2)
+        #        might work to adapt Pandas but that does not keep the with the pyPortfolioOpt tests...
+        #        To be revisited post Spark 3.2 release possibly write custom cov()?!?
         assembler = VectorAssembler(inputCols=returns.columns, outputCol=vector_col, handleInvalid="skip")
         matrix = assembler.transform(returns).select(vector_col)
         matrix_rdd = RowMatrix(matrix.rdd.map(list))
