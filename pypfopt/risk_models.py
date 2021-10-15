@@ -170,6 +170,9 @@ def sample_cov(prices, returns_data=False, frequency=252, log_returns=False, is_
     :return: annualised sample covariance matrix
     :rtype: pd.DataFrame
     """
+    if is_spark is True and type(spark_ses) != pyspark.sql.session.SparkSession:
+        raise RuntimeError("No valid spark session reference has been provided")
+        sys.exit(1)
     if is_spark is True and len(prices.columns) > 65535:
         raise RuntimeError("Operation with more than 65535 columns are not supported. Aborting!")
         sys.exit(1)
