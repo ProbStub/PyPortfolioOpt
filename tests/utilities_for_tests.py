@@ -1,7 +1,8 @@
 import os
-
+import subprocess
 import numpy as np
 import pandas as pd
+from pyspark.sql import SparkSession
 from pypfopt import expected_returns
 from pypfopt import risk_models
 from pypfopt.efficient_frontier import (
@@ -156,3 +157,10 @@ def simple_ef_weights(expected_returns, cov_matrix, target_return, weights_sum):
     # Weights are all but the last 2 elements, which are the lambdas.
     w = x.flatten()[:-2]
     return w
+
+def setup_spark():
+    os.environ["PYSPARK_PYTHON"] = subprocess.run(["which", "python3"], text=True, capture_output=True).stdout.rstrip()
+    spark = SparkSession.builder.appName("PyPortfolioOpt-Spark") \
+        .config("spark.sql.execution.arrow.pyspark.enabled", "true") \
+        .getOrCreate()
+    return spark

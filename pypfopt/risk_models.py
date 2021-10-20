@@ -24,6 +24,11 @@ The format of the data input is the same as that in :ref:`expected-returns`.
 import warnings
 import numpy as np
 import pandas as pd
+import pyspark
+from pyspark.ml.feature import VectorAssembler
+from pyspark.sql import functions as F
+from pyspark.mllib.linalg.distributed import RowMatrix
+
 from .expected_returns import returns_from_prices
 
 
@@ -144,13 +149,13 @@ def risk_matrix(prices, method="sample_cov", **kwargs):
         raise NotImplementedError("Risk model {} not implemented".format(method))
 
 
-def sample_cov(prices, returns_data=False, frequency=252, log_returns=False, **kwargs):
+def sample_cov(prices, returns_data=False, frequency=252, log_returns=False, is_spark=False, spark_ses=None, **kwargs):
     """
     Calculate the annualised sample covariance matrix of (daily) asset returns.
 
     :param prices: adjusted closing prices of the asset, each row is a date
                    and each column is a ticker/id.
-    :type prices: pd.DataFrame
+    :type prices: pd.DataFrame or spark.DataFrame with a "date_index" col of type Timestamp and less than 65535 col
     :param returns_data: if true, the first argument is returns instead of prices.
     :type returns_data: bool, defaults to False.
     :param frequency: number of time periods in a year, defaults to 252 (the number
@@ -158,19 +163,63 @@ def sample_cov(prices, returns_data=False, frequency=252, log_returns=False, **k
     :type frequency: int, optional
     :param log_returns: whether to compute using log returns
     :type log_returns: bool, defaults to False
+    :is_spark: whether to invoke spark distributed computation, requires spark_ses
+    :type is_spark: bool, optional
+    :spark_ses: a configured spark session
+    :type is_spark: pyspark.sql.session.SparkSession, optional
     :return: annualised sample covariance matrix
     :rtype: pd.DataFrame
     """
-    if not isinstance(prices, pd.DataFrame):
+    if is_spark is True and type(spark_ses) != pyspark.sql.session.SparkSession:
+        raise RuntimeError("No valid spark session reference has been provided")
+        sys.exit(1)
+    if is_spark is True and len(prices.columns) > 65535:
+        raise RuntimeError("Operation with more than 65535 columns are not supported. Aborting!")
+        sys.exit(1)
+    if is_spark is True and type(prices) == pyspark.sql.dataframe.DataFrame and "date_index" not in prices.columns:
+        raise RuntimeError("Loading a spark dataframe without a 'date_index' column is not supported!")
+        sys.exit(1)
+    if is_spark is True and type(prices) == pyspark.sql.dataframe.DataFrame and "date_index" in prices.columns and\
+        "timestamp" not in [dat_type for col, dat_type in prices.dtypes if col == "date_index"]:
+        raise RuntimeError("Dataframe with 'date_index' column of wrong type. Must be type Timestamp")
+        sys.exit(1)
+    if is_spark is True and type(prices) != pyspark.sql.dataframe.DataFrame and\
+            type(spark_ses) == pyspark.sql.session.SparkSession:
+        warnings.warn("data is not in a spark dataframe", RuntimeWarning)
+        prices["date_index"] = prices.index
+        prices = spark_ses.createDataFrame(prices)
+        prices = prices.withColumn("date_index", F.col("date_index").cast("Timestamp"))
+    if not isinstance(prices, pd.DataFrame) and not is_spark:
         warnings.warn("data is not in a dataframe", RuntimeWarning)
         prices = pd.DataFrame(prices)
     if returns_data:
         returns = prices
     else:
-        returns = returns_from_prices(prices, log_returns)
-    return fix_nonpositive_semidefinite(
-        returns.cov() * frequency, kwargs.get("fix_method", "spectral")
-    )
+        returns = returns_from_prices(prices, log_returns, is_spark)
+    if not is_spark:
+        return_matrix = fix_nonpositive_semidefinite(
+            returns.cov() * frequency, kwargs.get("fix_method", "spectral")
+        )
+    if is_spark:
+        returns = returns.drop("date_index")
+        vector_col = "cov_features"
+        # FIXME: Pandas.cov() and SparkML.computeCovariance are treating None/null differently.
+        #        Compare: https://stackoverflow.com/questions/69583287
+        #        fillna(0) and handleInvalid="keep" do not make Spark behave. cov(min_periods=len(returns.index)/2)
+        #        might work to adapt Pandas but that does not keep the with the pyPortfolioOpt tests...
+        #        To be revisited post Spark 3.2 release possibly write custom cov()?!?
+        assembler = VectorAssembler(inputCols=returns.columns, outputCol=vector_col, handleInvalid="skip")
+        matrix = assembler.transform(returns).select(vector_col)
+        matrix_rdd = RowMatrix(matrix.rdd.map(list))
+        matrix_cov = matrix_rdd.computeCovariance()
+        returns_cov = spark_ses.createDataFrame(matrix_cov.toArray().tolist(), returns.columns)
+        returns_cov = returns_cov.select("*").toPandas()
+        returns_cov.index = returns.columns
+        return_matrix = fix_nonpositive_semidefinite(
+            returns_cov * frequency, kwargs.get("fix_method", "spectral")
+        )
+
+    return return_matrix
 
 
 def semicovariance(

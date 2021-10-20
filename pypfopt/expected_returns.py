@@ -23,24 +23,63 @@ Additionally, we provide utility functions to convert from returns to prices and
 import warnings
 import pandas as pd
 import numpy as np
+import pyspark
+from pyspark.sql import functions as F
+from pyspark.sql.window import Window
 
 
-def returns_from_prices(prices, log_returns=False):
+def returns_from_prices(prices, log_returns=False, is_spark=False):
     """
     Calculate the returns given prices.
 
     :param prices: adjusted (daily) closing prices of the asset, each row is a
                    date and each column is a ticker/id.
-    :type prices: pd.DataFrame
+    :type prices: pd.DataFrame or spark.DataFrame with a "date_index" col of type Timestamp
     :param log_returns: whether to compute using log returns
     :type log_returns: bool, defaults to False
+    :is_spark: whether prices is a spark dataframe
+    :type is_spark: bool, optional
     :return: (daily) returns
-    :rtype: pd.DataFrame
+    :rtype: pd.DataFrame or spark dataframe if is_spark is true
     """
-    if log_returns:
+    if is_spark is True and type(prices) != pyspark.sql.dataframe.DataFrame:
+        raise RuntimeError("Loading a non-spark dataframe to a spark session is not supported!")
+        sys.exit(1)
+    if is_spark is True and type(prices) == pyspark.sql.dataframe.DataFrame and "date_index" not in prices.columns:
+        raise RuntimeError("Loading a spark dataframe without a 'date_index' column is not supported!")
+        sys.exit(1)
+    if is_spark is True and type(prices) == pyspark.sql.dataframe.DataFrame and "date_index" in prices.columns and\
+        "timestamp" not in [dat_type for col, dat_type in prices.dtypes if col == "date_index"]:
+        raise RuntimeError("Dataframe with 'date_index' column of wrong type. Must be type Timestamp")
+        sys.exit(1)
+
+    if log_returns and not is_spark:
         return np.log(1 + prices.pct_change()).dropna(how="all")
-    else:
+    if not log_returns and not is_spark:
         return prices.pct_change().dropna(how="all")
+
+    if log_returns and is_spark:
+        # TODO: Add partition to Window()
+        price_cols = prices.columns
+        price_cols.remove("date_index")
+        for col in price_cols:
+            prices = prices.\
+                withColumn("tmp_lag_1", F.lag(prices[col]) \
+                                             .over(Window.orderBy("date_index"))) \
+                .withColumn(col, (F.col(col) - F.col("tmp_lag_1")) / F.col("tmp_lag_1")).drop(F.col("tmp_lag_1"))\
+                .withColumn(col, F.log(1+F.col(col)))
+        prices = prices.dropna(how="all", subset=price_cols)
+        return prices
+    if not log_returns and is_spark:
+        price_cols = prices.columns
+        price_cols.remove("date_index")
+        for col in price_cols:
+            prices = prices\
+                .withColumn("tmp_lag_1", F.lag(prices[col]) \
+                                             .over(Window.orderBy("date_index"))) \
+                .withColumn(col, (F.col(col) - F.col("tmp_lag_1")) / F.col("tmp_lag_1")).drop(F.col("tmp_lag_1"))
+        prices = prices.dropna(how="all", subset=price_cols)
+        return prices
 
 
 def prices_from_returns(returns, log_returns=False):
@@ -129,7 +168,7 @@ def mean_historical_return(prices, returns_data=False, compounding=True, frequen
 
 
 def ema_historical_return(
-    prices, returns_data=False, compounding=True, span=500, frequency=252
+        prices, returns_data=False, compounding=True, span=500, frequency=252
 ):
     """
     Calculate the exponentially-weighted mean of (daily) historical returns, giving
@@ -173,12 +212,12 @@ def james_stein_shrinkage(prices, returns_data=False, compounding=True, frequenc
 
 
 def capm_return(
-    prices,
-    market_prices=None,
-    returns_data=False,
-    risk_free_rate=0.02,
-    compounding=True,
-    frequency=252,
+        prices,
+        market_prices=None,
+        returns_data=False,
+        risk_free_rate=0.02,
+        compounding=True,
+        frequency=252,
 ):
     """
     Compute a return estimate using the Capital Asset Pricing Model. Under the CAPM,
@@ -238,10 +277,24 @@ def capm_return(
     # Find mean market return on a given time period
     if compounding:
         mkt_mean_ret = (1 + returns["mkt"]).prod() ** (
-            frequency / returns["mkt"].count()
+                frequency / returns["mkt"].count()
         ) - 1
     else:
         mkt_mean_ret = returns["mkt"].mean() * frequency
 
     # CAPM formula
     return risk_free_rate + betas * (mkt_mean_ret - risk_free_rate)
+
+
+def _sec_in_days(num_days):
+    """
+    Calculate the seconds in a day
+
+        :num_days: number of days to compute seconds for
+        :type num_days: int
+        :return: seconds in days
+        :rtype: int
+    """
+    return_sec = num_days * 86400
+
+    return return_sec

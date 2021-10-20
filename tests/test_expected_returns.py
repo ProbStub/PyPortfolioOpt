@@ -1,8 +1,9 @@
 import pandas as pd
 import numpy as np
 import pytest
+from pyspark.sql import functions as F
 from pypfopt import expected_returns
-from tests.utilities_for_tests import get_data, get_benchmark_data
+from tests.utilities_for_tests import get_data, get_benchmark_data, setup_spark
 
 
 def test_returns_dataframe():
@@ -280,3 +281,42 @@ def test_james_stein_shrinkage():
     df = get_data()
     with pytest.raises(NotImplementedError):
         expected_returns.james_stein_shrinkage(df)
+
+def test_spark_returns_from_price_equivalence():
+    spark = setup_spark()
+    df = get_data()
+    df["date_index"] = df.index
+    spark_df = spark.createDataFrame(df)
+    spark_df = spark_df.withColumn("date_index", F.col("date_index").cast("Timestamp"))
+    df = df.drop(columns=["date_index"])
+    returns_df_orig = expected_returns.returns_from_prices(df)
+    returns_df_spark = expected_returns.returns_from_prices(spark_df, is_spark=True)
+    returns_df_spark_pd = returns_df_spark.drop("date_index").toPandas()
+    returns_df_spark_pd.index = returns_df_orig.index
+    element_delta_df = returns_df_orig.subtract(returns_df_spark_pd)
+    assert element_delta_df.max().max() <= 0.0000000001
+
+def test_spark_returns_from_price_spark_error():
+    with pytest.raises(RuntimeError) as r:
+        returns_spark = expected_returns.returns_from_prices(pd.DataFrame(), is_spark=True)
+        assert str(r[0].message) == "Loading a non-spark dataframe to a spark session is not supported!"
+
+def test_spark_returns_from_price_date_index_error():
+    spark = setup_spark()
+    df = get_data()
+    df["date"] = df.index
+    spark_df = spark.createDataFrame(df)
+    spark_df = spark_df.withColumn("date", F.col("date").cast("Timestamp"))
+    with pytest.raises(RuntimeError) as r:
+        returns_spark = expected_returns.returns_from_prices(spark_df, is_spark=True)
+        assert str(r[0].message) == "Loading a spark dataframe without a 'date_index' column is not supported!"
+
+def test_spark_returns_from_price_date_type_error():
+    spark = setup_spark()
+    df = get_data()
+    df["date_index"] = df.index
+    spark_df = spark.createDataFrame(df)
+    spark_df = spark_df.withColumn("date_index", F.col("date_index").cast("string"))
+    with pytest.raises(RuntimeError) as r:
+        returns_spark = expected_returns.returns_from_prices(spark_df, is_spark=True)
+        assert str(r[0].message) == "Dataframe with 'date_index' column of wrong type. Must be type Timestamp"
